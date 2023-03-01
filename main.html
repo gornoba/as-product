@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-GLhlTQ8iRABdZLl6O3oVMWSktQOp6b7In1Zl3/Jr59b6EGGoI1aFkw7cmDA6j6gD" crossorigin="anonymous">
+    <?!= include("css"); ?>
+    <script src="//t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js" integrity="sha384-w76AqPfDkMBDXo30jS1Sgez6pr3x5MlQ1ZAGC+nuZB+EYdgRZgiwxhTBTkF7CXvN" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11.4.20/dist/sweetalert2.all.min.js"></script>
+  </head>
+  <body class="bg-light-subtle">
+    <div id="app"></div>
+
+    <script>
+      const { createApp, reactive, ref, onBeforeMount } = Vue;
+
+      const app = createApp({
+        setup() {
+          const keyValue = ref("");
+          const initData = ref([]);
+          const initDataRaw = ref([]);
+          const inputState = ref('');
+          let headState = reactive({
+            inputDate: new Date().toISOString().split("T")[0],
+            inputName: "",
+            inputPhone: '',
+            inputBirth: '',
+            inputPerson: '',
+            inputAddress: '',
+          })
+          const headStateInit = reactive(Object.assign({}, headState));
+          const productData = [];
+
+          onBeforeMount(async () => {
+            Swal.fire({
+              title: '아래를 선택해주세요.',
+              showDenyButton: true,
+              confirmButtonText: '불출실',
+              denyButtonText: `택배불출`,
+              allowEscapeKey: false,
+              allowOutsideClick: false,
+            }).then((result) => {
+              if(result.isConfirmed) {
+                inputState.value = '불출실 8층'
+              } else {
+                inputState.value = '택배불출'
+              }
+            })
+
+            await initDataLoad();
+            setTimeout(async function repeat() {
+              await initDataLoad();
+              setTimeout(repeat, 60000);
+            }, 60000)
+          })
+
+          function googleRun(fnName, arg) {
+            return new Promise((resolve, reject) => {
+              google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[fnName](arg);
+            });
+          }
+
+          function loadingStart() {
+            document.getElementById('loading').classList.remove('invisible')
+          }
+
+          function loadingEnd() {
+            document.getElementById('loading').classList.add('invisible')
+          }
+
+          async function initDataLoad() {
+            const result = await googleRun('getKey', "");
+            loadingEnd();
+
+            if (!_.isEqual(keyValue.value, result.key)) {
+              keyValue.value = _.cloneDeep(result.key);
+            }
+
+            if (!_.isEqual(initDataRaw.value, result.initData)) {
+              initData.value = _.cloneDeep(result.initData);
+              initDataRaw.value = _.cloneDeep(result.initData);
+            }
+          }
+
+          function inputStateChange(e) {
+            const buttonValue = e.target.innerText;
+            const changeText = ['불출실 8층', '불출실 12층', '불출실 14층'];
+
+            if (/불출실/.test(buttonValue)) {
+              const index = changeText.indexOf(buttonValue);
+              if (index === 2) {
+                inputState.value = changeText[0]
+              } else {
+                const indexNumber = index + 1;
+                inputState.value = changeText[indexNumber];
+              }
+            }
+          }
+
+          function dateCheck(e) {
+            const label = e.target.previousElementSibling.textContent;
+            const value = e.target.value;
+
+            if(value && !/^\d{4}-(0[1-9]|1[012])-(0[1-9]|[12][0-9]|3[01])$/.test(value)) {
+              Swal.fire(`${label}을 다시 입력하세요.`,'날짜가 맞지 않습니다.','error').then(() => {
+                if (label === '일자') {
+                  headState.inputDate = new Date().toISOString().split("T")[0];
+                } else {
+                  headState.inputBirth = '';
+                }
+                e.target.focus();
+              })
+            }
+          }
+
+          function phoneCheck(e) {
+            const label = e.target.previousElementSibling.textContent;
+            const value = e.target.value.replace(/\s/g,'');
+            if(value && !/^01([0|1|6|7|8|9])-?([0-9]{3,4})-?([0-9]{4})$/.test(value)) {
+              Swal.fire(`${label}을 다시 입력하세요.`,'전화번호 형식이 맞지 않습니다.','error').then(() => {
+                headState.inputPhone = "";
+                e.target.focus();
+              })
+            }
+          }
+
+          function phoneHyphen(e) {
+            const value = e.target.value.replace(/\s/g,'');
+            const transform = value.replace(/[^0-9]/g, '').replace(/^(\d{0,3})(\d{0,4})(\d{0,4})$/g, "$1-$2-$3").replace(/(\-{1,2})$/g, "");
+            const split = value.split(/-/g); 
+
+            if (split[2] && split[2].length === 5) {
+              headState.inputPhone = value.slice(0,value.length-1);
+            } else {
+              headState.inputPhone = transform;
+            }           
+          }
+
+          function execPostCode(e) {
+            if (!headState.inputAddress) {
+              addressInput();
+            } else {
+              Swal.fire({
+                title: '주소를 다시 입력하시겠습니까?',
+                showDenyButton: true,
+                confirmButtonText: '네',
+                denyButtonText: `아니오`,
+              }).then((result) => {
+                if(result.isConfirmed) {
+                  addressInput();
+                }
+              })
+            }
+            
+          }
+
+          function addressInput() {
+            daum.postcode.load(function(){
+              new daum.Postcode({
+                oncomplete: function(data) {
+                  headState.inputAddress = data.roadAddress;
+                  Swal.fire({
+                    title: '나머지 주소를 입력해주세요.',
+                    input: 'text',
+                    allowEscapeKey: false,
+                    allowOutsideClick: false,
+                    confirmButtonText: '확인',
+                    didOpen: (modalElement) => {
+                      modalElement.querySelector('input').focus();
+                    },
+                    preConfirm: (inputValue) => {
+                      if (!inputValue) {
+                        Swal.showValidationMessage('나머지 주소를 입력해주세요.');
+                      } else {
+                        return headState.inputAddress = headState.inputAddress + " " + inputValue;
+                      }
+                    }
+                  })
+                }
+              }).open();
+            });
+          }
+
+          function boxCount(e, key, sort1, sort2, sort3) {
+            const inputNumber = parseInt(e.target.value);
+            
+            if (initData.value[key][sort1]['input'] !== 'box') {
+              if (inputNumber < 0) {
+              initData.value[key][sort1][sort2] = 0;
+              initData.value[key][sort1][sort3] = 0;
+              } else {
+              initData.value[key][sort1][sort2] = inputNumber * 30;
+              }
+            }
+          }
+
+          function poCount(e, key, sort1, sort2) {
+            const inputNumber = parseInt(e.target.value);
+            
+            if (inputNumber < 0) {
+             initData.value[key][sort1][sort2] = 0;
+             
+            } 
+          }
+
+          function checkBoxclick(e, key, sort1) {
+            const checkData = initData.value[key][sort1]['check'];
+
+            if (checkData) {
+              initData.value[key][sort1]['outBox'] = '';
+              initData.value[key][sort1]['outPo'] = '';
+              initData.value[key][sort1]['ticketingBox'] = '';
+              initData.value[key][sort1]['ticketingPo'] = '';
+            }
+          }
+
+          const submitData = _.debounce(async (e) => {
+            const validationEl = document.querySelector("form")
+            validationEl.classList.add('was-validated')
+            
+            const headerData = _.cloneDeep(headState);
+            for (const key in headerData) {
+              if (headerData.hasOwnProperty(key) && headerData[key] === '') {
+                delete headerData[key];
+              }
+            }
+
+            headerData.buttonValue = e.target.innerText;
+            headerData.inputState = inputState.value;
+
+            const a = initData.value.map(a => a['베이직']).filter(b => b && b.check)
+            const b = initData.value.map(a => a['블랙/프리미엄']).filter(b => b && b.check)
+            const c = initData.value.map(a => a['제품']).filter(b => b && b.check)
+            const union = _.union(a, b, c);
+
+            if(!validationEl.checkValidity() || (inputState.value === '택배불출' && !headState.inputAddress) || union.length === 0) {
+              Swal.fire({
+                title: '입력창을 확인하고 다시 클릭해주세요.',
+                html: `${inputState.value === '택배불출' && !headState.inputAddress ? '주소를 입력하지 않았습니다.' : ''}${(inputState.value === '택배불출' && !headState.inputAddress) && union.length === 0 ? '<br>' : ''}${union.length === 0 ? '물품을 선택하지 않았습니다.' : ''}`,
+                icon: 'warning',
+              })
+            } else {
+              const unionMessage = union.map(a => {
+                const productOutMessage = [
+                  a.outBox && a.outBox > 0 ? `${a.outBox}Box` : '',
+                  a.outPo && a.outPo > 0 ? `${a.outPo}포` : '',
+                ]
+
+                const productTicketMessage = [
+                  a.ticketingBox && a.ticketingBox > 0 ? `${a.ticketingBox}Box` : '',
+                  a.ticketingPo && a.ticketingPo > 0 ? `${a.ticketingPo}포` : '',
+                ]
+
+                const productMessageUnion = [
+                  productTicketMessage.filter(c => c).length > 0 ? '티케팅 →'+productTicketMessage.filter(b => b).join(',') : '',
+                  productOutMessage.filter(c => c).length > 0 ? '불출 →'+productOutMessage.filter(b => b).join(',') : '',
+                ]
+
+                const resultMessage = `${a.name}: ${productMessageUnion.filter(a => a).join(" | ")}`
+                return resultMessage
+              }).join('<br>');
+
+              const alertMessage = [
+                `${headerData.inputState ? `전체구분 : ${headerData.inputState}` : ''}`,
+                `${headerData.buttonValue ? `입력구분 : ${headerData.buttonValue}` : ''}`,
+                `${headerData.inputDate ? `일자 : ${headerData.inputDate}` : ''}`,
+                `${headerData.inputName ? `고객명 : ${headerData.inputName}` : ''}`,
+                `${headerData.inputBirth ? `생년월일 : ${headerData.inputBirth}` : ''}`,
+                `${headerData.inputPhone ? `연락처 : ${headerData.inputPhone}` : ''}`,
+                `${headerData.inputAddress ? `주소 : ${headerData.inputAddress}` : ''}`,
+                `${headerData.inputPerson ? `불출자 : ${headerData.inputPerson}` : ''}`,
+                `<br>${unionMessage}`,
+              ]
+
+              Swal.fire({
+                title: '입력 내용을 확인하세요.',
+                html: alertMessage.filter(a => a).join('<br>'),
+                showDenyButton: true,
+                confirmButtonText: '네',
+                denyButtonText: `아니오`,
+              }).then(async (result1) => {
+                if (result1.isConfirmed) {
+                  loadingStart();
+                  const sentResult = await googleRun('insertData', { head: headerData, product: union});
+                  loadingEnd();
+
+                  Swal.fire({
+                    title: sentResult ? '전송이 완료되었습니다.' : '오류가 발생하였습니다.',
+                    text: sentResult ? '' : '다시 시도해주세요.',
+                    icon: sentResult ? 'success' : 'error',
+                    timer: 3000,
+                  }).then(async () => {
+                    if (sentResult) {
+                      validationEl.classList.remove('was-validated');
+                      initData.value = Object.assign(initData.value, initDataRaw.value)
+                      headState = Object.assign(headState, headStateInit)
+                      await initDataLoad();
+                    }
+                  })
+                }
+              })
+            }
+          }, 250)
+          
+          return { 
+            keyValue,
+            initData,
+            headState,
+            inputState,
+            dateCheck,
+            phoneHyphen,
+            phoneCheck,
+            execPostCode,
+            boxCount,
+            submitData,
+            poCount,
+            checkBoxclick,
+            inputStateChange,
+          };
+        },
+        template: `
+          <div id='loading' class="d-flex justify-content-center align-items-center">
+            <div class="spinner-border" style="width: 3rem; height: 3rem;" role="status">
+              <span class="visually-hidden">Loading...</span>
+            </div>
+          </div>
+
+          <div class="container border border-dark" style="max-width: 90vw !important;">
+            
+            <form class="position-relative" v-on:submit.prevent>
+              <div class="row">
+                <div class="col-8">
+                  <div class="mt-3 p-1 border border-secondary-subtle rounded input-data-box" >
+                    <div class="row">
+                        <div class="col-6">
+                          <div class="input-group input-group-sm mb-1" style="height: 50px">
+                            <span class="input-group-text d-flex justify-content-center" style="width: 120px; font-size:20px;">일자</span>
+                            <input v-model="headState.inputDate" type="date" class="form-control" style="font-size:20px;" @blur="dateCheck($event)" required />
+                          </div>
+                        </div>
+                        <div class="col-6">
+                          <div class="input-group input-group-sm mb-1" style="height: 50px">
+                            <span class="input-group-text d-flex justify-content-center" style="width: 120px; font-size:20px;">고객명</span>
+                            <input  v-model="headState.inputName" type="text" class="form-control" style="font-size:20px;" required />
+                          </div>
+                        </div>
+                        <div class="col-6">
+                          <div class="input-group input-group-sm mb-1" style="height: 50px">
+                            <span class="input-group-text d-flex justify-content-center" style="width: 120px; font-size:20px;">생년월일</span>
+                            <input v-model="headState.inputBirth" type="date" class="form-control" style="font-size:20px;" @blur="dateCheck($event)" required />
+                          </div>
+                        </div>
+                        <div class="col-6">
+                          <div class="input-group input-group-sm mb-1" style="height: 50px">
+                            <span class="input-group-text d-flex justify-content-center" style="width: 120px; font-size:20px;">연락처</span>
+                            <input v-model="headState.inputPhone" type="text" class="form-control" style="font-size:20px;" @input="phoneHyphen($event)" @blur=phoneCheck($event) required />
+                          </div>
+                        </div>
+                        <div
+                          :class="{
+                            'col-12': inputState !== '택배불출',
+                            'col-6': inputState === '택배불출' && headState.inputAddress.length < 16,
+                            'col-12': inputState === '택배불출' && headState.inputAddress.length >= 16,
+                          }"
+                        >
+                          <div class="input-group input-group-sm mb-1" style="height: 50px">
+                            <span class="input-group-text d-flex justify-content-center" style="width: 120px; font-size:20px;">불출자확인</span>
+                            <input v-model="headState.inputPerson" type="text" class="form-control" style="font-size:20px;" required />
+                          </div>
+                        </div>
+                        <div
+                          :class="{
+                            'col-12': headState.inputAddress.length >= 16,
+                            'col-6': headState.inputAddress.length < 16
+                          }"
+                        >
+                          <div v-if="inputState === '택배불출'" class="input-group input-group-sm mb-1" style="height: 50px">
+                            <span class="input-group-text d-flex justify-content-center" style="width: 120px; font-size:20px;" @click=execPostCode($event)>주소</span>
+                            <input v-model="headState.inputAddress" type="text" class="form-control" style="font-size:20px;" disabled @click=execPostCode($event) :required="inputState === '택배불출'" />
+                          </div>
+                        </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="col-4">
+                  <div class="row">
+                    <div class="d-flex justify-content-end mt-3">
+                      <div class="d-flex border" style="width: 200px;">
+                        <div class="bg-secondary bg-opacity-10 text-center" style="width: 50px;">No</div>
+                        <div class="text-center" style="width: 150px;">{{ keyValue }}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="row">
+                    <div class="d-flex justify-content-end mt-3">
+                      <div class="rounded" style="font-size: 36px; letter-spacing: 10px; background: firebrick; width: fit-content; margin-left: auto; padding-left: 0.7rem; color: white;" @click="inputStateChange($event)">
+                      {{ inputState }}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="row">
+                    <div class="col-4 mt-3 d-flex justify-content-end">
+                      <button type="submit" class="btn btn-outline-primary btn-lg" @click="submitData($event)">
+                      재고이동
+                      </button>
+                    </div>
+                    <div class="col-4 mt-3 d-flex justify-content-end">
+                      <button type="submit" class="btn btn-outline-info btn-lg" @click="submitData($event)">
+                      고객반납
+                      </button>
+                    </div>
+                    <div class="col-4 mt-3 d-flex justify-content-end">
+                      <button type="submit" class="btn btn-outline-warning btn-lg" @click="submitData($event)">
+                      고객불출
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </form>
+
+            <table class="table table-bordered table-hover mt-5">
+              <thead class="text-center">
+                <tr>
+                  <th scope="col" rowspan="2" colspan="2" style="vertical-align: middle;">베이직</th>
+                  <th class="bg-danger-subtle" scope="col" colspan="2">티케팅</th>
+                  <th class="bg-info-subtle" scope="col" colspan="2">불출</th>
+                  <th scope="col" rowspan="2" colspan="2" style="vertical-align: middle">블랙/프리미엄</th>
+                  <th class="bg-danger-subtle" scope="col" colspan="2">티케팅</th>
+                  <th class="bg-info-subtle" scope="col" colspan="2">불출</th>
+                  <th scope="col" rowspan="2" colspan="2" style="vertical-align: middle">제품</th>
+                  <th class="bg-danger-subtle" scope="col" colspan="2">티케팅</th>
+                  <th class="bg-info-subtle" scope="col" colspan="2">불출</th>
+                </tr>
+                <tr>
+                  <th class="bg-danger-subtle" scope="col">Box</th>
+                  <th class="bg-danger-subtle" scope="col">포</th>
+                  <th class="bg-info-subtle" scope="col">Box</th>
+                  <th class="bg-info-subtle" scope="col">포</th>
+                  <th class="bg-danger-subtle" scope="col">Box</th>
+                  <th class="bg-danger-subtle" scope="col">포</th>
+                  <th class="bg-info-subtle" scope="col">Box</th>
+                  <th class="bg-info-subtle" scope="col">포</th>
+                  <th class="bg-danger-subtle" scope="col">Box</th>
+                  <th class="bg-danger-subtle" scope="col">포</th>
+                  <th class="bg-info-subtle" scope="col">Box</th>
+                  <th class="bg-info-subtle" scope="col">포</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(value, key) in initData" :key=key >
+                  <td style="text-align: center; vertical-align: middle; width: 4em;"> 
+                    <div v-if="value['베이직']">
+                      {{value["베이직"]["name"]}}
+                    </div> 
+                  </td>
+                  <td style="text-align: center; vertical-align: middle; width: 2em;">
+                    <input v-if="value['베이직']" v-model="initData[key]['베이직']['check']" class="form-check-input" type="checkbox" style="width: 100%; height: 1.2em;" @click="checkBoxclick($evnet, key, '베이직')">
+                  </td>
+                  <td :class="{'bg-danger-subtle': value['베이직']}" style="text-align: center; vertical-align: middle; width: 5.5em;">
+                    <input v-if="value['베이직']" v-model="initData[key]['베이직']['ticketingBox']" type="number" class="form-control" :disabled="!value['베이직']['check']" style="height: 30px" @input="boxCount($event, key, '베이직', 'ticketingPo', 'ticketingBox')">
+                  </td>
+                  <td :class="{'bg-danger-subtle': value['베이직']}" style="text-align: center; vertical-align: middle; width: 5.5em;">
+                    <input v-if="value['베이직']" v-model="initData[key]['베이직']['ticketingPo']" type="number" class="form-control" :disabled="!value['베이직']['check']" style="height: 30px" @input="poCount($event, key, '베이직', 'ticketingPo')">
+                  </td>
+                  <td :class="{'bg-info-subtle': value['베이직']}" style="text-align: center; vertical-align: middle; width: 5.5em;">
+                    <input v-if="value['베이직']" v-model="initData[key]['베이직']['outBox']" type="number" class="form-control" :disabled="!value['베이직']['check']" style="height: 30px" @input="boxCount($event, key, '베이직', 'outPo', 'outBox')">
+                  </td>
+                  <td :class="{'bg-info-subtle': value['베이직']}" style="text-align: center; vertical-align: middle; width: 5.5em;">
+                    <input v-if="value['베이직']" v-model="initData[key]['베이직']['outPo']" type="number" class="form-control" :disabled="!value['베이직']['check']" style="height: 30px" @input="poCount($event, key, '베이직', 'outPo')">
+                  </td>
+
+                  <td style="text-align: center; vertical-align: middle; width: 4em;"> 
+                    <div v-if="value['블랙/프리미엄']">
+                      {{value["블랙/프리미엄"]["name"]}}
+                    </div> 
+                  </td>
+                  <td style="text-align: center; vertical-align: middle; width: 2em;">
+                    <input v-if="value['블랙/프리미엄']" v-model="initData[key]['블랙/프리미엄']['check']" class="form-check-input" type="checkbox" style="width: 100%; height: 1.2em;">
+                  </td>
+                  <td :class="{'bg-danger-subtle': value['블랙/프리미엄']}" style="text-align: center; vertical-align: middle; width: 5.5em;">
+                    <input v-if="value['블랙/프리미엄']" v-model="initData[key]['블랙/프리미엄']['ticketingBox']" type="number" class="form-control" :disabled="!value['블랙/프리미엄']['check']" style="height: 30px" @input="boxCount($event, key, '블랙/프리미엄', 'ticketingPo', 'ticketingBox')">
+                  </td>
+                  <td :class="{'bg-danger-subtle': value['블랙/프리미엄']}" style="text-align: center; vertical-align: middle; width: 5.5em;">
+                    <input v-if="value['블랙/프리미엄']" v-model="initData[key]['블랙/프리미엄']['ticketingPo']" type="number" class="form-control" :disabled="!value['블랙/프리미엄']['check']" style="height: 30px" @input="poCount($event, key, '베이직', 'ticketingPo')">
+                  </td>
+                  <td :class="{'bg-info-subtle': value['블랙/프리미엄']}" style="text-align: center; vertical-align: middle; width: 5.5em;">
+                    <input v-if="value['블랙/프리미엄']" v-model="initData[key]['블랙/프리미엄']['outBox']" type="number" class="form-control" :disabled="!value['블랙/프리미엄']['check']" style="height: 30px" @input="boxCount($event, key, '블랙/프리미엄', 'outPo', 'outBox')">
+                  </td>
+                  <td :class="{'bg-info-subtle': value['블랙/프리미엄']}" style="text-align: center; vertical-align: middle; width: 5.5em;">
+                    <input v-if="value['블랙/프리미엄']" v-model="initData[key]['블랙/프리미엄']['outPo']" type="number" class="form-control" :disabled="!value['블랙/프리미엄']['check']" style="height: 30px" @input="poCount($event, key, '베이직', 'outPo')">
+                  </td>
+
+                  <td style="text-align: center; vertical-align: middle; width: 4em;"> 
+                    <div v-if="value['제품']">
+                      {{value["제품"]["name"]}}
+                    </div> 
+                  </td>
+                  <td style="text-align: center; vertical-align: middle; width: 2em;">
+                    <input v-if="value['제품']" v-model="initData[key]['제품']['check']" class="form-check-input" type="checkbox" style="width: 100%; height: 1.2em;">
+                  </td>
+                  <td :class="{'bg-danger-subtle': value['제품']}" style="text-align: center; vertical-align: middle; width: 5.5em;">
+                    <input v-if="value['제품']" v-model="initData[key]['제품']['ticketingBox']" type="number" class="form-control" :disabled="!value['제품']['check']" style="height: 30px" @input="boxCount($event, key, '제품', 'ticketingPo', 'ticketingBox')">
+                  </td>
+                  <td :class="{'bg-danger-subtle': value['제품']}" style="text-align: center; vertical-align: middle; width: 5.5em;">
+                    <input v-if="value['제품']" v-model="initData[key]['제품']['ticketingPo']" type="number" class="form-control" :disabled="!value['제품']['check'] || value['제품']['input'] === 'box'" style="height: 30px" @input="poCount($event, key, '베이직', 'ticketingPo')">
+                  </td>
+                  <td :class="{'bg-info-subtle': value['제품']}" style="text-align: center; vertical-align: middle; width: 5.5em;">
+                    <input v-if="value['제품']" v-model="initData[key]['제품']['outBox']" type="number" class="form-control" :disabled="!value['제품']['check']" style="height: 30px" @input="boxCount($event, key, '제품', 'outPo', 'outBox')">
+                  </td>
+                  <td :class="{'bg-info-subtle': value['제품']}"  style="text-align: center; vertical-align: middle; width: 5.5em;">
+                    <input v-if="value['제품']" v-model="initData[key]['제품']['outPo']" type="number" class="form-control" :disabled="!value['제품']['check'] || value['제품']['input'] === 'box'" style="height: 30px" @input="poCount($event, key, '베이직', 'outPo')">
+                  </td>
+
+
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        `
+      });
+      
+      app.mount('#app');
+    </script>
+  </body>
+</html>
